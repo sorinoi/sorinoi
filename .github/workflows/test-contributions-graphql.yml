@@ -253,6 +253,9 @@ jobs:
           PROFILE_USERNAME: sorinoi
         run: python scripts/update-contributions.py
 
+      - name: Apply Seamless Styling
+        run: python scripts/polish-svg.py contribution-matrix.svg
+
       - name: Validate Contribution Matrix SVG
         shell: bash
         run: |
