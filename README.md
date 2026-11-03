@@ -6,8 +6,6 @@
     width="100%"
   />
 </div>
-
-
 <!-- SORIN.exe Tech Stack Dashboard -->
 <div align="center">
   <img
@@ -16,3 +14,13 @@
     width="100%"
   />
 </div>
+<!-- PIXEL ANALYTICS -->
+<div align="center">
+  <img src="./assets/pixel-analytics.svg"
+       alt="GitHub Analytics"
+       width="100%" />
+  <img src="./assets/featured-quests.svg"
+       alt="Featured Quests"
+       width="100%" />
+</div>
+    

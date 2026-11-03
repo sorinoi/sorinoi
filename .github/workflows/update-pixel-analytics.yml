@@ -1,0 +1,40 @@
+name: Update Pixel Analytics
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 1 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pixel-analytics
+  cancel-in-progress: false
+
+jobs:
+  update-analytics:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout profile repository
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Update public analytics SVG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROFILE_USERNAME: sorinoi
+        run: python scripts/update-analytics.py
+      - name: Commit analytics if changed
+        run: |
+          if git diff --quiet -- assets/pixel-analytics.svg; then
+            echo 'No analytics changes'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/pixel-analytics.svg
+          git commit -m 'chore(profile): refresh pixel analytics'
+          git push
