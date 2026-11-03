@@ -70,6 +70,8 @@ jobs:
                   sys.exit(
                       f"FAIL: GitHub API HTTP {exc.code}"
                   )
+              except Exception:
+                  sys.exit("FAIL: GraphQL request failed")
 
               if result.get("errors"):
                   print(json.dumps(result["errors"], indent=2))
@@ -120,6 +122,8 @@ jobs:
 
           viewer = data["viewer"]
           user = data["user"]
+          if not viewer:
+              sys.exit("FAIL: Viewer data missing")
 
           if viewer["login"].lower() != expected.lower():
               sys.exit("FAIL: Token account mismatch")
@@ -160,6 +164,18 @@ jobs:
           assert 365 <= len(days) <= 371, (
               f"Unexpected calendar days: {len(days)}"
           )
+
+          valid_levels = {
+              "NONE",
+              "FIRST_QUARTILE",
+              "SECOND_QUARTILE",
+              "THIRD_QUARTILE",
+              "FOURTH_QUARTILE",
+          }
+          assert all(
+              day["contributionLevel"] in valid_levels
+              for day in days
+          ), "Invalid contribution level"
 
           print("Calendar days:", len(days))
           print("PASS: Default GraphQL validation")
