@@ -1,0 +1,104 @@
+
+name: Test Seamless SVG Polish
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/seamless-polish
+
+permissions:
+  contents: read
+
+jobs:
+  test-polish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate SVG files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          files = [
+              "tech-dashboard.svg",
+              "pixel-analytics.svg",
+              "featured-quests.svg",
+          ]
+          for name in files:
+              path = Path("assets") / name
+              ET.parse(path)
+              print("Valid SVG:", path)
+          PY
+
+      - name: Apply Seamless Polish
+        run: python scripts/polish-svg.py
+
+      - name: Check SVG data preserved
+        run: |
+          python - <<'PY'
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          NS = "{http://www.w3.org/2000/svg}"
+          files = [
+              "tech-dashboard.svg",
+              "pixel-analytics.svg",
+              "featured-quests.svg",
+          ]
+
+          for name in files:
+              path = f"assets/{name}"
+              original = subprocess.check_output(
+                  ["git", "show", f"HEAD:{path}"]
+              )
+              before = ET.fromstring(original)
+              after = ET.parse(path).getroot()
+
+              def texts(root):
+                  return [
+                      "".join(t.itertext())
+                      for t in root.iter(NS + "text")
+                  ]
+
+              assert texts(before) == texts(after), (
+                  f"Text changed in {name}"
+              )
+              assert after.find(
+                  f".//*[@id='sorin-seam-polish']"
+              ) is not None, (
+                  f"Polish overlay missing in {name}"
+              )
+              print("Passed:", name)
+          PY
+
+      - name: Check idempotency
+        run: |
+          cp assets/tech-dashboard.svg /tmp/tech.svg
+          cp assets/pixel-analytics.svg /tmp/analytics.svg
+          cp assets/featured-quests.svg /tmp/quests.svg
+
+          python scripts/polish-svg.py
+
+          cmp /tmp/tech.svg assets/tech-dashboard.svg
+          cmp /tmp/analytics.svg assets/pixel-analytics.svg
+          cmp /tmp/quests.svg assets/featured-quests.svg
+
+      - name: Upload polished SVG preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorin-seamless-svg-preview
+          path: |
+            assets/tech-dashboard.svg
+            assets/pixel-analytics.svg
+            assets/featured-quests.svg
+          retention-days: 7
