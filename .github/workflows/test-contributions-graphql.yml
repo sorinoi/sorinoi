@@ -133,3 +133,74 @@ jobs:
                 collection["hasAnyRestrictedContributions"])
           print("PASS: No repository details requested")
           PY
+
+          
+      - name: Checkout contribution matrix branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate Contribution Matrix SVG
+        env:
+          CONTRIBUTIONS_TOKEN: ${{ secrets.SORIN_CONTRIBUTIONS_TOKEN }}
+          PROFILE_USERNAME: sorinoi
+        run: python scripts/update-contributions.py
+
+      - name: Validate Contribution Matrix SVG
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          path = Path("assets/contribution-matrix.svg")
+          assert path.exists(), "SVG not generated"
+
+          root = ET.parse(path).getroot()
+          ns = "{http://www.w3.org/2000/svg}"
+
+          assert root.get("viewBox") == "0 0 1475 365"
+
+          rects = root.findall(f".//{ns}rect")
+          heatmap = [
+              r for r in rects
+              if r.get("width") == "15"
+              and r.get("height") == "15"
+              and float(r.get("y", 0)) < 290
+          ]
+
+          assert 365 <= len(heatmap) <= 371, (
+              f"Unexpected heatmap cells: {len(heatmap)}"
+          )
+
+          texts = [
+              "".join(t.itertext())
+              for t in root.findall(f".//{ns}text")
+          ]
+
+          assert any(
+              "CONTRIBUTION MATRIX" in t for t in texts
+          ), "Missing title"
+
+          assert any(
+              "CONTRIBUTIONS" in t for t in texts
+          ), "Missing contribution total"
+
+          print("PASS: SVG XML structure")
+          print("PASS: SVG dimensions 1475 x 365")
+          print("PASS: Heatmap cells:", len(heatmap))
+          print("PASS: Contribution summary")
+          PY
+
+      - name: Upload Contribution Matrix Preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorin-contribution-matrix-preview
+          path: assets/contribution-matrix.svg
+          if-no-files-found: error
+          retention-days: 7
+
