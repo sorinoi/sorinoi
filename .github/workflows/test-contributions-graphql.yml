@@ -138,6 +138,7 @@ jobs:
       - name: Checkout contribution matrix branch
         uses: actions/checkout@v4
         with:
+          ref: feature/contribution-matrix
           persist-credentials: false
 
       - name: Setup Python
