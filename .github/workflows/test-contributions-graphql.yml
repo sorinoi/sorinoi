@@ -1,8 +1,13 @@
-
 name: Test Contributions GraphQL
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/contribution-matrix
+    paths:
+      - 'scripts/update-contributions.py'
+      - '.github/workflows/test-contributions-graphql.yml'
 
 permissions:
   contents: read
@@ -10,8 +15,19 @@ permissions:
 jobs:
   test-graphql:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
+      - name: Checkout contribution matrix branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Verify GitHub Contribution Calendar
         env:
           CONTRIBUTIONS_TOKEN: ${{ secrets.SORIN_CONTRIBUTIONS_TOKEN }}
@@ -22,16 +38,15 @@ jobs:
           import json
           import os
           import sys
-          import urllib.request
           import urllib.error
+          import urllib.request
 
-          token = os.environ.get("CONTRIBUTIONS_TOKEN", "")
-          expected = os.environ["EXPECTED_LOGIN"]
-
+          token = os.environ.get('CONTRIBUTIONS_TOKEN', '')
+          expected = os.environ['EXPECTED_LOGIN']
           if not token:
-              sys.exit("FAIL: Contributions secret is missing")
+              sys.exit('FAIL: Contributions secret is missing')
 
-          query = """
+          query = '''
           query {
             viewer {
               login
@@ -54,96 +69,55 @@ jobs:
               }
             }
           }
-          """
-
-          payload = json.dumps({"query": query}).encode()
-
+          '''
           request = urllib.request.Request(
-              "https://api.github.com/graphql",
-              data=payload,
+              'https://api.github.com/graphql',
+              data=json.dumps({'query': query}).encode('utf-8'),
               headers={
-                  "Authorization": f"Bearer {token}",
-                  "Content-Type": "application/json",
-                  "Accept": "application/vnd.github+json",
-                  "User-Agent": "SORIN.exe-Contributions-Test",
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/vnd.github+json',
+                  'User-Agent': 'SORIN.exe-Contributions-Test',
               },
-              method="POST",
+              method='POST',
           )
-
           try:
-              with urllib.request.urlopen(
-                  request, timeout=30
-              ) as response:
+              with urllib.request.urlopen(request, timeout=30) as response:
                   result = json.load(response)
           except urllib.error.HTTPError as exc:
-              sys.exit(
-                  f"FAIL: GitHub API returned HTTP {exc.code}"
-              )
+              sys.exit(f'FAIL: GitHub API returned HTTP {exc.code}')
           except Exception:
-              sys.exit("FAIL: GraphQL request failed")
+              sys.exit('FAIL: GraphQL request failed')
 
-          if result.get("errors"):
-              sys.exit(
-                  "FAIL: GraphQL returned errors; "
-                  "check token permissions and query"
-              )
-
-          viewer = (result.get("data") or {}).get("viewer")
+          if result.get('errors'):
+              sys.exit('FAIL: GraphQL returned errors')
+          viewer = (result.get('data') or {}).get('viewer')
           if not viewer:
-              sys.exit("FAIL: Viewer data missing")
+              sys.exit('FAIL: Viewer data missing')
+          if viewer['login'].lower() != expected.lower():
+              sys.exit('FAIL: Token belongs to wrong account')
 
-          if viewer["login"].lower() != expected.lower():
-              sys.exit("FAIL: Token belongs to wrong account")
-
-          collection = viewer["contributionsCollection"]
-          calendar = collection["contributionCalendar"]
-
-          days = [
-              day
-              for week in calendar["weeks"]
-              for day in week["contributionDays"]
-          ]
-
+          collection = viewer['contributionsCollection']
+          calendar = collection['contributionCalendar']
+          days = [day for week in calendar['weeks'] for day in week['contributionDays']]
           if not 365 <= len(days) <= 371:
-              sys.exit("FAIL: Unexpected calendar size")
-
+              sys.exit(f'FAIL: Unexpected calendar size: {len(days)}')
           valid_levels = {
-              "NONE",
-              "FIRST_QUARTILE",
-              "SECOND_QUARTILE",
-              "THIRD_QUARTILE",
-              "FOURTH_QUARTILE",
+              'NONE', 'FIRST_QUARTILE', 'SECOND_QUARTILE',
+              'THIRD_QUARTILE', 'FOURTH_QUARTILE',
           }
+          if any(day['contributionLevel'] not in valid_levels for day in days):
+              sys.exit('FAIL: Invalid contribution level')
 
-          if any(
-              day["contributionLevel"] not in valid_levels
-              for day in days
-          ):
-              sys.exit("FAIL: Invalid contribution level")
-
-          print("PASS: Authenticated GitHub GraphQL")
-          print("PASS: Token account matches expected login")
-          print("PASS: Contribution calendar structure")
-          print("Calendar days:", len(days))
-          print("Total contributions:",
-                calendar["totalContributions"])
-          print("Restricted contributions:",
-                collection["restrictedContributionsCount"])
-          print("Has restricted contributions:",
-                collection["hasAnyRestrictedContributions"])
-          print("PASS: No repository details requested")
+          print('PASS: Authenticated GitHub GraphQL')
+          print('PASS: Token account matches expected login')
+          print('PASS: Contribution calendar structure')
+          print('Calendar days:', len(days))
+          print('Total contributions:', calendar['totalContributions'])
+          print('Restricted contributions:', collection['restrictedContributionsCount'])
+          print('Has restricted contributions:', collection['hasAnyRestrictedContributions'])
+          print('PASS: No repository details requested')
           PY
-
-          
-      - name: Checkout contribution matrix branch
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
       - name: Generate Contribution Matrix SVG
         env:
@@ -152,48 +126,39 @@ jobs:
         run: python scripts/update-contributions.py
 
       - name: Validate Contribution Matrix SVG
+        shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
-          path = Path("assets/contribution-matrix.svg")
-          assert path.exists(), "SVG not generated"
-
+          path = Path('assets/contribution-matrix.svg')
+          assert path.is_file(), 'SVG not generated'
           root = ET.parse(path).getroot()
-          ns = "{http://www.w3.org/2000/svg}"
+          ns = '{http://www.w3.org/2000/svg}'
+          assert root.tag == f'{ns}svg', 'Unexpected SVG root'
+          assert root.get('viewBox') == '0 0 1475 365', 'Incorrect viewBox'
+          assert root.get('width') == '1475', 'Incorrect width'
+          assert root.get('height') == '365', 'Incorrect height'
 
-          assert root.get("viewBox") == "0 0 1475 365"
-
-          rects = root.findall(f".//{ns}rect")
+          rects = root.findall(f'.//{ns}rect')
           heatmap = [
               r for r in rects
-              if r.get("width") == "15"
-              and r.get("height") == "15"
-              and float(r.get("y", 0)) < 290
+              if r.get('width') == '15'
+              and r.get('height') == '15'
+              and float(r.get('y', 0)) < 290
           ]
-
           assert 365 <= len(heatmap) <= 371, (
-              f"Unexpected heatmap cells: {len(heatmap)}"
+              f'Unexpected heatmap cells: {len(heatmap)}'
           )
+          texts = [''.join(t.itertext()) for t in root.findall(f'.//{ns}text')]
+          assert any('CONTRIBUTION MATRIX' in t for t in texts), 'Missing title'
+          assert any('CONTRIBUTIONS' in t for t in texts), 'Missing contribution total'
 
-          texts = [
-              "".join(t.itertext())
-              for t in root.findall(f".//{ns}text")
-          ]
-
-          assert any(
-              "CONTRIBUTION MATRIX" in t for t in texts
-          ), "Missing title"
-
-          assert any(
-              "CONTRIBUTIONS" in t for t in texts
-          ), "Missing contribution total"
-
-          print("PASS: SVG XML structure")
-          print("PASS: SVG dimensions 1475 x 365")
-          print("PASS: Heatmap cells:", len(heatmap))
-          print("PASS: Contribution summary")
+          print('PASS: SVG XML structure')
+          print('PASS: SVG dimensions 1475 x 365')
+          print('PASS: Heatmap cells:', len(heatmap))
+          print('PASS: Contribution summary')
           PY
 
       - name: Upload Contribution Matrix Preview
@@ -203,4 +168,3 @@ jobs:
           path: assets/contribution-matrix.svg
           if-no-files-found: error
           retention-days: 7
-
