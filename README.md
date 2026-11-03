@@ -1,16 +1,9 @@
 
-<div align="center">
-  <img src="./assets/pixel-banner.png"
-       alt="SORIN.exe Pixel Cyberpunk Banner"
-       width="100%" />
-</div>
-
-<!-- SORIN.exe Animated Terminal -->
+<!-- SORIN.exe Pixel Cyberpunk Profile -->
 <div align="center">
   <img
-    src="./assets/terminal.svg"
-    alt="SORIN.exe Animated Terminal"
+    src="./assets/sorin-profile.svg"
+    alt="SORIN.exe Pixel Cyberpunk Profile"
     width="100%"
   />
 </div>
-
