@@ -25,6 +25,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROFILE_USERNAME: sorinoi
         run: python scripts/update-stats.py
+        
+      - name: Apply Seamless Pixel Polish
+        run: python scripts/polish-svg.py tech-dashboard.svg
 
       - name: Commit changed SVG
         run: |

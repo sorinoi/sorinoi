@@ -27,6 +27,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROFILE_USERNAME: sorinoi
         run: python scripts/update-analytics.py
+        
+      - name: Apply Seamless Pixel Polish
+        run: python scripts/polish-svg.py pixel-analytics.svg
+
       - name: Commit analytics if changed
         run: |
           if git diff --quiet -- assets/pixel-analytics.svg; then
