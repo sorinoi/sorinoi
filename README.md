@@ -5,14 +5,16 @@
     alt="SORIN.exe Pixel Cyberpunk Profile"
     width="100%"
   />
+   <img
+    src="./assets/tech-dashboard.svg"
+    alt="SORIN.exe Tech Stack and GitHub Stats"
+    width="100%"
+    style="margin-top: -10px"
+  />
 </div>
 
 
 <!-- SORIN.exe Tech Stack Dashboard -->
-<div align="center">
-  <img
-    src="./assets/tech-dashboard.svg"
-    alt="SORIN.exe Tech Stack and GitHub Stats"
-    width="100%"
-  />
-</div>
+<!-- <div align="center"> -->
+ 
+<!-- </div> -->
