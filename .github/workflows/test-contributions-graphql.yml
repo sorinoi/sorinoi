@@ -119,6 +119,106 @@ jobs:
           print('PASS: No repository details requested')
           PY
 
+          
+      - name: Compare Viewer and User Contributions
+        env:
+          CONTRIBUTIONS_TOKEN: ${{ secrets.SORIN_CONTRIBUTIONS_TOKEN }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ["CONTRIBUTIONS_TOKEN"]
+
+          query = """
+          query {
+            viewer {
+              login
+              contributionsCollection {
+                startedAt
+                endedAt
+                restrictedContributionsCount
+                hasAnyRestrictedContributions
+                contributionCalendar {
+                  totalContributions
+                }
+              }
+            }
+            user(login: "sorinoi") {
+              login
+              isViewer
+              contributionsCollection {
+                startedAt
+                endedAt
+                restrictedContributionsCount
+                hasAnyRestrictedContributions
+                contributionCalendar {
+                  totalContributions
+                }
+              }
+            }
+          }
+          """
+
+          request = urllib.request.Request(
+              "https://api.github.com/graphql",
+              data=json.dumps({"query": query}).encode(),
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "SORIN.exe-Diagnostics",
+              },
+              method="POST",
+          )
+
+          with urllib.request.urlopen(request, timeout=30) as response:
+              result = json.load(response)
+
+          if result.get("errors"):
+              raise RuntimeError(
+                  "GraphQL diagnostic query failed"
+              )
+
+          data = result["data"]
+
+          for key in ("viewer", "user"):
+              account = data[key]
+              collection = account["contributionsCollection"]
+
+              print(f"--- {key.upper()} ---")
+              print("Login:", account["login"])
+              if key == "user":
+                  print("Is Viewer:", account["isViewer"])
+              print("Started:", collection["startedAt"])
+              print("Ended:", collection["endedAt"])
+              print(
+                  "Total:",
+                  collection["contributionCalendar"]["totalContributions"]
+              )
+              print(
+                  "Restricted:",
+                  collection["restrictedContributionsCount"]
+              )
+              print(
+                  "Has Restricted:",
+                  collection["hasAnyRestrictedContributions"]
+              )
+
+          viewer_total = data["viewer"]["contributionsCollection"][
+              "contributionCalendar"
+          ]["totalContributions"]
+
+          user_total = data["user"]["contributionsCollection"][
+              "contributionCalendar"
+          ]["totalContributions"]
+
+          print("--- COMPARISON ---")
+          print("Difference:", viewer_total - user_total)
+          print("Same totals:", viewer_total == user_total)
+          PY
+
       - name: Generate Contribution Matrix SVG
         env:
           CONTRIBUTIONS_TOKEN: ${{ secrets.SORIN_CONTRIBUTIONS_TOKEN }}
