@@ -3,6 +3,12 @@ name: Test Contributions GraphQL
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/contribution-matrix
+    paths:
+      - 'scripts/update-contributions.py'
+      - '.github/workflows/test-contributions-graphql.yml'
 
 permissions:
   contents: read
@@ -10,9 +16,20 @@ permissions:
 jobs:
   test-graphql:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - name: Verify GitHub Contribution Calendar
+      - name: Checkout contribution matrix branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify and Compare GitHub Contributions
         env:
           CONTRIBUTIONS_TOKEN: ${{ secrets.SORIN_CONTRIBUTIONS_TOKEN }}
           EXPECTED_LOGIN: sorinoi
@@ -29,17 +46,49 @@ jobs:
           expected = os.environ["EXPECTED_LOGIN"]
 
           if not token:
-              sys.exit("FAIL: Contributions secret is missing")
+              sys.exit("FAIL: Contributions token missing")
 
-          query = """
+          def graphql(query):
+              request = urllib.request.Request(
+                  "https://api.github.com/graphql",
+                  data=json.dumps({"query": query}).encode(),
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Content-Type": "application/json",
+                      "Accept": "application/vnd.github+json",
+                      "User-Agent": "SORIN.exe-Diagnostics",
+                  },
+                  method="POST",
+              )
+
+              try:
+                  with urllib.request.urlopen(
+                      request, timeout=30
+                  ) as response:
+                      result = json.load(response)
+              except urllib.error.HTTPError as exc:
+                  sys.exit(
+                      f"FAIL: GitHub API HTTP {exc.code}"
+                  )
+              except Exception:
+                  sys.exit("FAIL: GraphQL request failed")
+
+              if result.get("errors"):
+                  print(json.dumps(result["errors"], indent=2))
+                  sys.exit("FAIL: GraphQL errors")
+
+              return result["data"]
+
+          # 1. Compare default viewer and user
+          default_query = """
           query {
             viewer {
               login
               contributionsCollection {
                 startedAt
                 endedAt
-                hasAnyRestrictedContributions
                 restrictedContributionsCount
+                hasAnyRestrictedContributions
                 contributionCalendar {
                   totalContributions
                   weeks {
@@ -53,59 +102,68 @@ jobs:
                 }
               }
             }
+            user(login: "sorinoi") {
+              login
+              isViewer
+              contributionsCollection {
+                startedAt
+                endedAt
+                restrictedContributionsCount
+                hasAnyRestrictedContributions
+                contributionCalendar {
+                  totalContributions
+                }
+              }
+            }
           }
           """
 
-          payload = json.dumps({"query": query}).encode()
+          data = graphql(default_query)
 
-          request = urllib.request.Request(
-              "https://api.github.com/graphql",
-              data=payload,
-              headers={
-                  "Authorization": f"Bearer {token}",
-                  "Content-Type": "application/json",
-                  "Accept": "application/vnd.github+json",
-                  "User-Agent": "SORIN.exe-Contributions-Test",
-              },
-              method="POST",
-          )
-
-          try:
-              with urllib.request.urlopen(
-                  request, timeout=30
-              ) as response:
-                  result = json.load(response)
-          except urllib.error.HTTPError as exc:
-              sys.exit(
-                  f"FAIL: GitHub API returned HTTP {exc.code}"
-              )
-          except Exception:
-              sys.exit("FAIL: GraphQL request failed")
-
-          if result.get("errors"):
-              sys.exit(
-                  "FAIL: GraphQL returned errors; "
-                  "check token permissions and query"
-              )
-
-          viewer = (result.get("data") or {}).get("viewer")
+          viewer = data["viewer"]
+          user = data["user"]
           if not viewer:
               sys.exit("FAIL: Viewer data missing")
 
           if viewer["login"].lower() != expected.lower():
-              sys.exit("FAIL: Token belongs to wrong account")
+              sys.exit("FAIL: Token account mismatch")
 
-          collection = viewer["contributionsCollection"]
-          calendar = collection["contributionCalendar"]
+          for key, account in (
+              ("VIEWER", viewer),
+              ("USER", user),
+          ):
+              collection = account["contributionsCollection"]
+
+              print(f"--- {key} DEFAULT ---")
+              print("Login:", account["login"])
+              print("Started:", collection["startedAt"])
+              print("Ended:", collection["endedAt"])
+              print(
+                  "Total:",
+                  collection["contributionCalendar"]["totalContributions"]
+              )
+              print(
+                  "Restricted:",
+                  collection["restrictedContributionsCount"]
+              )
+              print(
+                  "Has Restricted:",
+                  collection["hasAnyRestrictedContributions"]
+              )
+
+          print("USER isViewer:", user["isViewer"])
 
           days = [
               day
-              for week in calendar["weeks"]
+              for week in viewer["contributionsCollection"][
+                  "contributionCalendar"
+              ]["weeks"]
               for day in week["contributionDays"]
           ]
 
-          if not 365 <= len(days) <= 371:
-              sys.exit("FAIL: Unexpected calendar size")
+          assert 365 <= len(days) <= 371, (
+              f"Unexpected calendar days: {len(days)}"
+          )
 
           valid_levels = {
               "NONE",
@@ -114,36 +172,96 @@ jobs:
               "THIRD_QUARTILE",
               "FOURTH_QUARTILE",
           }
-
-          if any(
-              day["contributionLevel"] not in valid_levels
+          assert all(
+              day["contributionLevel"] in valid_levels
               for day in days
-          ):
-              sys.exit("FAIL: Invalid contribution level")
+          ), "Invalid contribution level"
 
-          print("PASS: Authenticated GitHub GraphQL")
-          print("PASS: Token account matches expected login")
-          print("PASS: Contribution calendar structure")
           print("Calendar days:", len(days))
-          print("Total contributions:",
-                calendar["totalContributions"])
-          print("Restricted contributions:",
-                collection["restrictedContributionsCount"])
-          print("Has restricted contributions:",
-                collection["hasAnyRestrictedContributions"])
-          print("PASS: No repository details requested")
+          print("PASS: Default GraphQL validation")
+
+          # 2. Query calendar year 2026
+          year_query = """
+          query {
+            viewer {
+              contributionsCollection(
+                from: "2026-01-01T00:00:00Z"
+                to: "2026-11-03T23:59:59Z"
+              ) {
+                startedAt
+                endedAt
+                restrictedContributionsCount
+                hasAnyRestrictedContributions
+                contributionCalendar {
+                  totalContributions
+                }
+                totalCommitContributions
+                totalIssueContributions
+                totalPullRequestContributions
+                totalPullRequestReviewContributions
+                totalRepositoryContributions
+              }
+            }
+          }
+          """
+
+          year_data = graphql(year_query)
+          collection = year_data["viewer"][
+              "contributionsCollection"
+          ]
+
+          print("--- CALENDAR YEAR 2026 ---")
+          print("Started:", collection["startedAt"])
+          print("Ended:", collection["endedAt"])
+          print(
+              "Calendar Total:",
+              collection["contributionCalendar"]["totalContributions"]
+          )
+          print(
+              "Restricted:",
+              collection["restrictedContributionsCount"]
+          )
+          print(
+              "Has Restricted:",
+              collection["hasAnyRestrictedContributions"]
+          )
+          print(
+              "Commits:",
+              collection["totalCommitContributions"]
+          )
+          print(
+              "Issues:",
+              collection["totalIssueContributions"]
+          )
+          print(
+              "Pull Requests:",
+              collection["totalPullRequestContributions"]
+          )
+          print(
+              "Reviews:",
+              collection["totalPullRequestReviewContributions"]
+          )
+          print(
+              "Repositories:",
+              collection["totalRepositoryContributions"]
+          )
+
+          default_total = viewer[
+              "contributionsCollection"
+          ]["contributionCalendar"]["totalContributions"]
+
+          year_total = collection[
+              "contributionCalendar"
+          ]["totalContributions"]
+
+          print("--- COMPARISON ---")
+          print("Default Total:", default_total)
+          print("Year 2026 Total:", year_total)
+          print("Difference:", year_total - default_total)
+          print("GitHub Profile Reported:", 875)
+          print("Profile Difference:", 875 - year_total)
+          print("PASS: Diagnostics completed")
           PY
-
-          
-      - name: Checkout contribution matrix branch
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
       - name: Generate Contribution Matrix SVG
         env:
@@ -151,19 +269,26 @@ jobs:
           PROFILE_USERNAME: sorinoi
         run: python scripts/update-contributions.py
 
+      - name: Apply Seamless Styling
+        run: python scripts/polish-svg.py contribution-matrix.svg
+
       - name: Validate Contribution Matrix SVG
+        shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
           path = Path("assets/contribution-matrix.svg")
-          assert path.exists(), "SVG not generated"
+          assert path.is_file(), "SVG not generated"
 
           root = ET.parse(path).getroot()
           ns = "{http://www.w3.org/2000/svg}"
 
+          assert root.tag == f"{ns}svg"
           assert root.get("viewBox") == "0 0 1475 365"
+          assert root.get("width") == "1475"
+          assert root.get("height") == "365"
 
           rects = root.findall(f".//{ns}rect")
           heatmap = [
@@ -188,7 +313,7 @@ jobs:
 
           assert any(
               "CONTRIBUTIONS" in t for t in texts
-          ), "Missing contribution total"
+          ), "Missing contribution summary"
 
           print("PASS: SVG XML structure")
           print("PASS: SVG dimensions 1475 x 365")

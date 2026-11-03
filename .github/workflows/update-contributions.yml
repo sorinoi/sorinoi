@@ -1,0 +1,97 @@
+
+name: Update Contribution Matrix
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 1 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sorin-contribution-matrix-production
+  cancel-in-progress: false
+
+jobs:
+  update-contributions:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate Contribution Matrix
+        env:
+          CONTRIBUTIONS_TOKEN: ${{ secrets.SORIN_CONTRIBUTIONS_TOKEN }}
+          PROFILE_USERNAME: sorinoi
+        run: python scripts/update-contributions.py
+
+      - name: Apply Seamless Styling
+        run: python scripts/polish-svg.py contribution-matrix.svg
+
+      - name: Validate SVG
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          path = Path("assets/contribution-matrix.svg")
+          assert path.is_file(), "SVG not generated"
+
+          root = ET.parse(path).getroot()
+          ns = "{http://www.w3.org/2000/svg}"
+
+          assert root.tag == f"{ns}svg"
+          assert root.get("viewBox") == "0 0 1475 365"
+          assert root.get("width") == "1475"
+          assert root.get("height") == "365"
+
+          rects = root.findall(f".//{ns}rect")
+          cells = [
+              r for r in rects
+              if r.get("width") == "15"
+              and r.get("height") == "15"
+              and float(r.get("y", 0)) < 290
+          ]
+
+          assert 365 <= len(cells) <= 371, (
+              f"Unexpected heatmap cells: {len(cells)}"
+          )
+
+          print("PASS: Contribution Matrix validated")
+          print("PASS: Heatmap cells:", len(cells))
+          PY
+
+      - name: Commit and Push SVG
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add assets/contribution-matrix.svg
+
+          if git diff --cached --quiet; then
+            echo "No contribution changes detected"
+            exit 0
+          fi
+
+          git commit -m "chore(profile): update contribution matrix"
+
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+          echo "Contribution Matrix updated successfully"
