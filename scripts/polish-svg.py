@@ -9,7 +9,12 @@ import xml.etree.ElementTree as ET
 NS = 'http://www.w3.org/2000/svg'
 ET.register_namespace('', NS)
 S = lambda tag: f'{{{NS}}}{tag}'
-FILES = ['tech-dashboard.svg', 'pixel-analytics.svg', 'featured-quests.svg']
+FILES = [
+    'tech-dashboard.svg',
+    'pixel-analytics.svg',
+    'featured-quests.svg',
+    'contribution-matrix.svg',
+]
 
 def polish(path: Path):
     tree = ET.parse(path)
