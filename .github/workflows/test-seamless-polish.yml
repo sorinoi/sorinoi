@@ -93,6 +93,65 @@ jobs:
           cmp /tmp/analytics.svg assets/pixel-analytics.svg
           cmp /tmp/quests.svg assets/featured-quests.svg
 
+      
+      - name: Test GitHub Stats API and SVG update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROFILE_USERNAME: sorinoi
+        run: |
+          python scripts/update-stats.py
+          python scripts/polish-svg.py tech-dashboard.svg
+
+      - name: Test Analytics API and SVG update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROFILE_USERNAME: sorinoi
+        run: |
+          python scripts/update-analytics.py
+          python scripts/polish-svg.py pixel-analytics.svg
+
+      - name: Verify generated SVG files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          ns = "{http://www.w3.org/2000/svg}"
+
+          for name in (
+              "tech-dashboard.svg",
+              "pixel-analytics.svg",
+              "featured-quests.svg",
+          ):
+              path = Path("assets") / name
+              root = ET.parse(path).getroot()
+
+              assert root.find(
+                  ".//*[@id='sorin-seam-polish']"
+              ) is not None, f"Missing polish: {name}"
+
+              print("PASS:", name)
+
+          stats = ET.parse(
+              "assets/tech-dashboard.svg"
+          ).getroot()
+
+          texts = [
+              "".join(node.itertext()).strip()
+              for node in stats.iter(ns + "text")
+          ]
+
+          for label in (
+              "Total Stars:",
+              "Total Commits:",
+              "Total PRs:",
+              "Repositories:",
+          ):
+              assert label in texts, f"Missing: {label}"
+
+          print("PASS: GitHub Stats labels")
+          PY
+
       - name: Upload polished SVG preview
         uses: actions/upload-artifact@v4
         with:
