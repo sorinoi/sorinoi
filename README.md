@@ -6,3 +6,13 @@
     width="100%"
   />
 </div>
+
+
+<!-- SORIN.exe Tech Stack Dashboard -->
+<div align="center">
+  <img
+    src="./assets/tech-dashboard.svg"
+    alt="SORIN.exe Tech Stack and GitHub Stats"
+    width="100%"
+  />
+</div>
